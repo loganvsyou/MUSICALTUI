@@ -721,3 +721,8 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     MediaPlayerApp(media_dir).run()
+
+    print("Goodbye!") 
+    if MediaPlayerApp.mpv and MediaPlayerApp.mpv.poll() is None:
+        MediaPlayerApp.mpv.terminate()
+        
