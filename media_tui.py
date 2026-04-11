@@ -24,11 +24,11 @@ MONOCHROME_THEME = Theme(
     name="monochrome",
     primary="#ffffff",
     secondary="#aaaaaa",
-    accent="#228B22",
-    background="#000000",
-    surface="#111111",
-    panel="#1a1a1a",
-    boost="#222222",
+    accent="#63EDAA",
+    background="#1a1f2e",
+    surface="#1e2438",
+    panel="#222840",
+    boost="#2a3050",
     warning="#cccccc",
     error="#ffffff",
     success="#aaaaaa",
@@ -58,9 +58,9 @@ def _build_spotify_client():
     except ImportError:
         return None, "spotipy not installed — run: pip install spotipy"
 
-    client_id = os.environ.get("SPOTIPY_CLIENT_ID")
-    client_secret = os.environ.get("SPOTIPY_CLIENT_SECRET")
-    redirect_uri = os.environ.get("SPOTIPY_REDIRECT_URI", "http://localhost:8888/callback")
+    client_id = os.environ.get("SPOTIPY_CLIENT_ID", "2c080897d6c74c5b8408612d5805c9fe")
+    client_secret = os.environ.get("SPOTIPY_CLIENT_SECRET", "da3dbd4e8155472b9a4fddc303271de5")
+    redirect_uri = os.environ.get("SPOTIPY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
 
     if not client_id or not client_secret:
         return None, "Set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET env vars"
@@ -77,6 +77,24 @@ def _build_spotify_client():
         return sp, None
     except Exception as e:
         return None, str(e)
+
+
+class VSeparator(Widget):
+    """Full-height vertical line separator."""
+    def render(self) -> str:
+        return "\n".join("│" * 1 for _ in range(max(1, self.size.height)))
+
+    def on_resize(self) -> None:
+        self.refresh()
+
+
+class HSeparator(Widget):
+    """Full-width horizontal line separator."""
+    def render(self) -> str:
+        return "─" * max(1, self.size.width)
+
+    def on_resize(self) -> None:
+        self.refresh()
 
 
 class Visualizer(Widget):
@@ -172,39 +190,28 @@ class SplashScreen(Screen):
 
 class MediaPlayerApp(App):
     CSS = """
-    Screen { layout: vertical; }
+    Screen { layout: vertical; overflow: hidden hidden; }
 
     #outer {
-        border: round $accent;
+        border: solid $accent;
         height: 1fr;
         overflow: hidden hidden;
     }
 
-    #main {
-        height: 1fr;
-        overflow: hidden hidden;
-    }
+    #main { height: 1fr; overflow: hidden hidden; }
+
+    /* ── Custom separators ───────────────────── */
+    VSeparator { width: 1; color: $accent; }
+    HSeparator { height: 1; color: $accent; }
 
     /* ── Left pane ───────────────────────────── */
-    #left-pane {
-        width: 1fr;
-        min-width: 20;
-        border-right: heavy $accent;
-        overflow: hidden hidden;
-    }
+    #left-pane { width: 1fr; min-width: 20; overflow: hidden hidden; }
 
     TabbedContent { height: 1fr; border: none; padding: 0; }
     TabbedContent > ContentSwitcher { border: none; height: 1fr; padding: 0; overflow: hidden hidden; }
-
     TabPane { height: 1fr; padding: 0 1; border: none; overflow: hidden hidden; }
 
-    Tabs {
-        background: transparent;
-        border-bottom: heavy $accent;
-        padding: 0 1;
-        dock: top;
-    }
-
+    Tabs { background: transparent; border-bottom: solid $accent; padding: 0 1; }
     Tab { padding: 0 2; }
 
     ListView { height: 1fr; border: none; background: transparent; overflow-x: hidden; }
@@ -212,8 +219,7 @@ class MediaPlayerApp(App):
     #local-info, #spotify-info {
         text-style: bold;
         color: $accent;
-        padding: 1 0;
-        border-bottom: heavy $accent;
+        padding: 1 0 0 0;
         margin-bottom: 1;
     }
 
@@ -221,36 +227,25 @@ class MediaPlayerApp(App):
     #right-pane {
         width: 35%;
         min-width: 28;
-        max-width: 50;
-        padding: 1 2;
+        max-width: 52;
+        padding: 0 2;
         overflow: hidden hidden;
     }
 
-    #now-playing {
-        text-style: bold;
-        border-bottom: heavy $accent;
-        padding-bottom: 1;
-        margin-bottom: 1;
-    }
-
-    #status { margin-bottom: 1; }
+    #now-playing { text-style: bold; padding: 1 0 0 0; }
+    #status { padding-bottom: 1; }
 
     #spotify-logo {
         text-align: center;
         color: $accent;
-        border-top: heavy $accent;
-        border-bottom: heavy $accent;
         padding: 1 0;
-        margin-bottom: 1;
         overflow: hidden hidden;
     }
 
     #viz-label {
         text-style: bold;
         color: $accent;
-        border-bottom: heavy $accent;
-        padding-bottom: 1;
-        margin-bottom: 0;
+        padding: 1 0 0 0;
     }
 
     Visualizer { height: 1fr; color: $accent; }
@@ -296,9 +291,12 @@ class MediaPlayerApp(App):
                         with TabPane("Local", id="tab-local"):
                             yield Label(f"Library: {self.media_dir}", id="local-info")
                             yield ListView(id="media-list")
+                yield VSeparator()
                 with Vertical(id="right-pane"):
                     yield Static("Now Playing: nothing", id="now-playing")
+                    yield HSeparator()
                     yield Static("Status: idle", id="status")
+                    yield HSeparator()
                     yield Static(
                         "┌──────────────────────────┐\n"
                         "│    ▀█▀ █▀▀ █▀█ █▀▄▀█     │\n"
@@ -308,7 +306,9 @@ class MediaPlayerApp(App):
                         "└──────────────────────────┘",
                         id="spotify-logo",
                     )
+                    yield HSeparator()
                     yield Label("Visualizer", id="viz-label")
+                    yield HSeparator()
                     yield Visualizer()
         yield Footer()
 
@@ -319,6 +319,10 @@ class MediaPlayerApp(App):
         self.theme = "monochrome"
         self.push_screen(SplashScreen())
         self._load_and_connect()
+
+    def on_resize(self) -> None:
+        self.refresh(layout=True)
+
     @work(thread=True, name="init")
     def _load_and_connect(self) -> None:
         sp, err = _build_spotify_client()
@@ -706,6 +710,10 @@ class MediaPlayerApp(App):
 
 if __name__ == "__main__":
     import sys
+
+    # Resize terminal window to 123 cols x 37 rows on launch
+    sys.stdout.write("\033[8;37;123t")
+    sys.stdout.flush()
 
     media_dir = sys.argv[1] if len(sys.argv) > 1 else "."
     if not os.path.isdir(os.path.expanduser(media_dir)):
