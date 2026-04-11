@@ -6,14 +6,34 @@ import os
 import subprocess
 from pathlib import Path
 
+import random
+
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, Center, Middle
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.theme import Theme
+from textual.widget import Widget
 from textual.widgets import (
     Footer, Header, Label, ListItem, ListView,
     Static, TabbedContent, TabPane, LoadingIndicator,
+)
+
+MONOCHROME_THEME = Theme(
+    name="monochrome",
+    primary="#ffffff",
+    secondary="#aaaaaa",
+    accent="#228B22",
+    background="#000000",
+    surface="#111111",
+    panel="#1a1a1a",
+    boost="#222222",
+    warning="#cccccc",
+    error="#ffffff",
+    success="#aaaaaa",
+    foreground="#ffffff",
+    dark=True,
 )
 
 MEDIA_EXTS = {
@@ -59,6 +79,62 @@ def _build_spotify_client():
         return None, str(e)
 
 
+class Visualizer(Widget):
+    CHARS = " ▁▂▃▄▅▆▇█"
+
+    def __init__(self):
+        super().__init__()
+        self._heights: list[float] = []
+
+    def on_mount(self) -> None:
+        self.set_interval(0.08, self._tick)
+
+    def on_resize(self) -> None:
+        self._heights = []
+        self.refresh()
+
+    def _sync_bars(self, n: int) -> None:
+        """Grow or shrink the heights list to match current width."""
+        current = len(self._heights)
+        if n > current:
+            self._heights.extend([0.0] * (n - current))
+        elif n < current:
+            self._heights = self._heights[:n]
+
+    def _tick(self) -> None:
+        bars = max(1, self.size.width)
+        rows = max(1, self.size.height)
+        self._sync_bars(bars)
+        app = self.app
+        is_playing = getattr(app, "playing", False) and not getattr(app, "paused", True)
+        if is_playing:
+            for i in range(bars):
+                target = random.uniform(0, rows)
+                self._heights[i] += (target - self._heights[i]) * 0.35
+        else:
+            for i in range(bars):
+                self._heights[i] *= 0.75
+        self.refresh()
+
+    def render(self) -> str:
+        rows = max(1, self.size.height)
+        bars = max(1, self.size.width)
+        self._sync_bars(bars)
+        lines = []
+        for row in range(rows - 1, -1, -1):
+            line = ""
+            for h in self._heights[:bars]:
+                frac = h - row
+                if frac <= 0:
+                    line += " "
+                elif frac >= 1:
+                    line += "█"
+                else:
+                    line += self.CHARS[int(frac * (len(self.CHARS) - 1))]
+            lines.append(line)
+        return "\n".join(lines)
+
+
 class SplashScreen(Screen):
     CSS = """
     SplashScreen {
@@ -98,29 +174,86 @@ class MediaPlayerApp(App):
     CSS = """
     Screen { layout: vertical; }
 
-    #main { height: 1fr; }
+    #outer {
+        border: round $accent;
+        height: 1fr;
+        overflow: hidden hidden;
+    }
 
+    #main {
+        height: 1fr;
+        overflow: hidden hidden;
+    }
+
+    /* ── Left pane ───────────────────────────── */
     #left-pane {
         width: 1fr;
-        border: round $accent;
+        min-width: 20;
+        border-right: heavy $accent;
+        overflow: hidden hidden;
     }
 
-    #right-pane {
-        width: 40;
-        border: round $accent;
-        padding: 1;
+    TabbedContent { height: 1fr; border: none; padding: 0; }
+    TabbedContent > ContentSwitcher { border: none; height: 1fr; padding: 0; overflow: hidden hidden; }
+
+    TabPane { height: 1fr; padding: 0 1; border: none; overflow: hidden hidden; }
+
+    Tabs {
+        background: transparent;
+        border-bottom: heavy $accent;
+        padding: 0 1;
+        dock: top;
     }
 
-    #status, #now-playing, #help { margin-bottom: 1; }
+    Tab { padding: 0 2; }
 
-    TabbedContent { height: 1fr; }
-    TabPane { height: 1fr; padding: 0; }
-    ListView { height: 1fr; }
+    ListView { height: 1fr; border: none; background: transparent; overflow-x: hidden; }
 
     #local-info, #spotify-info {
         text-style: bold;
+        color: $accent;
+        padding: 1 0;
+        border-bottom: heavy $accent;
         margin-bottom: 1;
     }
+
+    /* ── Right pane ──────────────────────────── */
+    #right-pane {
+        width: 35%;
+        min-width: 28;
+        max-width: 50;
+        padding: 1 2;
+        overflow: hidden hidden;
+    }
+
+    #now-playing {
+        text-style: bold;
+        border-bottom: heavy $accent;
+        padding-bottom: 1;
+        margin-bottom: 1;
+    }
+
+    #status { margin-bottom: 1; }
+
+    #spotify-logo {
+        text-align: center;
+        color: $accent;
+        border-top: heavy $accent;
+        border-bottom: heavy $accent;
+        padding: 1 0;
+        margin-bottom: 1;
+        overflow: hidden hidden;
+    }
+
+    #viz-label {
+        text-style: bold;
+        color: $accent;
+        border-bottom: heavy $accent;
+        padding-bottom: 1;
+        margin-bottom: 0;
+    }
+
+    Visualizer { height: 1fr; color: $accent; }
     """
 
     BINDINGS = [
@@ -143,7 +276,7 @@ class MediaPlayerApp(App):
         self.current_index: int | None = None
         self.mpv: subprocess.Popen | None = None
         self.paused = False
-
+        self.playing = False
         # Spotify state
         self.sp = None
         self.spotify_playlists: list[dict] = []
@@ -153,37 +286,39 @@ class MediaPlayerApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="main"):
-            with Vertical(id="left-pane"):
-                with TabbedContent(id="tabs"):
-                    with TabPane("Local", id="tab-local"):
-                        yield Label(f"Library: {self.media_dir}", id="local-info")
-                        yield ListView(id="media-list")
-                    with TabPane("Spotify", id="tab-spotify"):
-                        yield Label("Spotify — connecting...", id="spotify-info")
-                        yield ListView(id="spotify-list")
-            with Vertical(id="right-pane"):
-                yield Static("Now Playing: nothing", id="now-playing")
-                yield Static("Status: idle", id="status")
-                yield Static(
-                    "Enter  play / open\n"
-                    "Space  pause\n"
-                    "h/l    seek ±5s\n"
-                    "-/=    volume\n"
-                    "n/p    next/prev\n"
-                    "Esc    back (Spotify)\n"
-                    "r      refresh\n"
-                    "q      quit",
-                    id="help",
-                )
+        with Vertical(id="outer"):
+            with Horizontal(id="main"):
+                with Vertical(id="left-pane"):
+                    with TabbedContent(id="tabs"):
+                        with TabPane("Spotify", id="tab-spotify"):
+                            yield Label("Spotify — connecting...", id="spotify-info")
+                            yield ListView(id="spotify-list")
+                        with TabPane("Local", id="tab-local"):
+                            yield Label(f"Library: {self.media_dir}", id="local-info")
+                            yield ListView(id="media-list")
+                with Vertical(id="right-pane"):
+                    yield Static("Now Playing: nothing", id="now-playing")
+                    yield Static("Status: idle", id="status")
+                    yield Static(
+                        "┌──────────────────────────┐\n"
+                        "│    ▀█▀ █▀▀ █▀█ █▀▄▀█     │\n"
+                        "│     █  █▀▀ █▀▄ █ ▀ █     │\n"
+                        "│     ▀  ▀▀▀ ▀ ▀ ▀   ▀     │\n"
+                        "│  M E D I A  P L A Y E R  │\n"
+                        "└──────────────────────────┘",
+                        id="spotify-logo",
+                    )
+                    yield Label("Visualizer", id="viz-label")
+                    yield Visualizer()
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "Terminal Media Player"
         self.sub_title = str(self.media_dir)
+        self.register_theme(MONOCHROME_THEME)
+        self.theme = "monochrome"
         self.push_screen(SplashScreen())
         self._load_and_connect()
-
     @work(thread=True, name="init")
     def _load_and_connect(self) -> None:
         sp, err = _build_spotify_client()
@@ -276,6 +411,7 @@ class MediaPlayerApp(App):
             text=True,
         )
         self.paused = False
+        self.playing = True
         self.update_now_playing(file_path.name)
         self.update_status("playing")
         self.query_one("#media-list", ListView).index = index
@@ -374,7 +510,7 @@ class MediaPlayerApp(App):
                 lv = self.query_one("#spotify-list", ListView)
                 lv.clear()
                 for track in tracks:
-                    lv.append(ListItem(Label(f"{track['artist']} \u2014 {track['name']}")))
+                    lv.append(ListItem(Label(f"[$accent][bold italic]{track['artist']}[/bold italic][/$accent] \u2014 {track['name']}")))
                 self.query_one("#spotify-info", Label).update(
                     f"Spotify / {pl_name} ({len(tracks)}) \u2014 Esc to go back"
                 )
@@ -414,7 +550,8 @@ class MediaPlayerApp(App):
             def update_ui(artist=artist, name=name):
                 self.stop_mpv()
                 self.paused = False
-                self.update_now_playing(f"{artist} \u2014 {name}")
+                self.playing = True
+                self.update_now_playing(f"[$accent][bold italic]{artist}[/bold italic][/$accent] \u2014 {name}")
                 self.update_status("playing (Spotify)")
             self.call_from_thread(update_ui)
         except Exception as e:
@@ -448,6 +585,7 @@ class MediaPlayerApp(App):
                 self.paused = not self.paused
                 self.update_status("paused" if self.paused else "playing")
         else:
+            self.paused = not self.paused
             self._spotify_pause_resume()
 
     @work(thread=True, name="spotify-pause")
