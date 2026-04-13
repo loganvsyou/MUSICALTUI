@@ -8,6 +8,24 @@ from pathlib import Path
 
 import random
 
+# Patch Textual so transparent backgrounds emit no escape code,
+# allowing the terminal's background image/transparency to show through.
+def _patch_transparent_rendering() -> None:
+    from textual.color import Color
+    from functools import lru_cache
+    _orig = Color.rich_color.fget
+
+    @property  # type: ignore[misc]
+    @lru_cache(1024)
+    def rich_color(self):  # type: ignore[override]
+        if self.a == 0 and self.ansi is None:
+            return None
+        return _orig(self)
+
+    Color.rich_color = rich_color  # type: ignore[assignment]
+
+_patch_transparent_rendering()
+
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -172,17 +190,19 @@ class SplashScreen(Screen):
 
 class MediaPlayerApp(App):
     CSS = """
-    Screen { layout: vertical; }
+    Screen { layout: vertical; background: transparent; }
 
     #outer {
         border: round $accent;
         height: 1fr;
         overflow: hidden hidden;
+        background: transparent;
     }
 
     #main {
         height: 1fr;
         overflow: hidden hidden;
+        background: transparent;
     }
 
     /* ── Left pane ───────────────────────────── */
@@ -191,12 +211,13 @@ class MediaPlayerApp(App):
         min-width: 20;
         border-right: heavy $accent;
         overflow: hidden hidden;
+        background: transparent;
     }
 
-    TabbedContent { height: 1fr; border: none; padding: 0; }
-    TabbedContent > ContentSwitcher { border: none; height: 1fr; padding: 0; overflow: hidden hidden; }
+    TabbedContent { height: 1fr; border: none; padding: 0; background: transparent; }
+    TabbedContent > ContentSwitcher { border: none; height: 1fr; padding: 0; overflow: hidden hidden; background: transparent; }
 
-    TabPane { height: 1fr; padding: 0 1; border: none; overflow: hidden hidden; }
+    TabPane { height: 1fr; padding: 0 1; border: none; overflow: hidden hidden; background: transparent; }
 
     Tabs {
         background: transparent;
@@ -205,9 +226,12 @@ class MediaPlayerApp(App):
         dock: top;
     }
 
-    Tab { padding: 0 2; }
+    Tab { padding: 0 2; background: transparent; }
 
     ListView { height: 1fr; border: none; background: transparent; overflow-x: hidden; }
+    ListView > ListItem { background: transparent; }
+    ListView > ListItem.-hovered { background: $accent 20%; }
+    ListView > ListItem.-highlight { background: $accent 30%; }
 
     #local-info, #spotify-info {
         text-style: bold;
@@ -215,6 +239,7 @@ class MediaPlayerApp(App):
         padding: 1 0;
         border-bottom: heavy $accent;
         margin-bottom: 1;
+        background: transparent;
     }
 
     /* ── Right pane ──────────────────────────── */
@@ -224,6 +249,7 @@ class MediaPlayerApp(App):
         max-width: 50;
         padding: 1 2;
         overflow: hidden hidden;
+        background: transparent;
     }
 
     #now-playing {
@@ -231,9 +257,10 @@ class MediaPlayerApp(App):
         border-bottom: heavy $accent;
         padding-bottom: 1;
         margin-bottom: 1;
+        background: transparent;
     }
 
-    #status { margin-bottom: 1; }
+    #status { margin-bottom: 1; background: transparent; }
 
     #spotify-logo {
         text-align: center;
@@ -243,6 +270,7 @@ class MediaPlayerApp(App):
         padding: 1 0;
         margin-bottom: 1;
         overflow: hidden hidden;
+        background: transparent;
     }
 
     #viz-label {
@@ -251,9 +279,14 @@ class MediaPlayerApp(App):
         border-bottom: heavy $accent;
         padding-bottom: 1;
         margin-bottom: 0;
+        background: transparent;
     }
 
-    Visualizer { height: 1fr; color: $accent; }
+    Header { background: transparent; }
+    Footer { background: transparent; }
+    Static { background: transparent; }
+    Label { background: transparent; }
+    Visualizer { height: 1fr; color: $accent; background: transparent; }
     """
 
     BINDINGS = [
@@ -319,6 +352,8 @@ class MediaPlayerApp(App):
         self.theme = "monochrome"
         self.push_screen(SplashScreen())
         self._load_and_connect()
+
+
     @work(thread=True, name="init")
     def _load_and_connect(self) -> None:
         sp, err = _build_spotify_client()
@@ -354,7 +389,6 @@ class MediaPlayerApp(App):
                 )
             else:
                 self.query_one("#spotify-info", Label).update(f"Spotify \u2014 {err}")
-
         self.call_from_thread(finish)
 
     # ── Helpers ───────────────────────────────────────────────────────────
