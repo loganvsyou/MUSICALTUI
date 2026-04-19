@@ -54,6 +54,38 @@ MONOCHROME_THEME = Theme(
     dark=True,
 )
 
+FOREST_THEME = Theme(
+    name="forest",
+    primary="#ffffff",
+    secondary="#aaaaaa",
+    accent="#C4A882",
+    background="#325536",
+    surface="#2b4a2f",
+    panel="#253f29",
+    boost="#1f3422",
+    warning="#d4b896",
+    error="#8b3a3a",
+    success="#4a7c4a",
+    foreground="#ffffff",
+    dark=True,
+)
+
+TAHOE_THEME = Theme(
+    name="tahoe",
+    primary="#2d3436",
+    secondary="#636e72",
+    accent="#00b4b4",
+    background="#727272",
+    surface="#626262",
+    panel="#525252",
+    boost="#424242",
+    warning="#e17055",
+    error="#c0392b",
+    success="#00b4b4",
+    foreground="#ffffff",
+    dark=True,
+)
+
 MEDIA_EXTS = {
     ".mp3", ".flac", ".wav", ".ogg", ".m4a",
     ".mp4", ".mkv", ".webm", ".avi", ".mov"
@@ -346,10 +378,12 @@ class MediaPlayerApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = "Terminal Media Player"
+        self.title = "端末 メディアプレーヤー"
         self.sub_title = str(self.media_dir)
         self.register_theme(MONOCHROME_THEME)
-        self.theme = "monochrome"
+        self.register_theme(FOREST_THEME)
+        self.register_theme(TAHOE_THEME)
+        self.theme = "tahoe"
         self.push_screen(SplashScreen())
         self._load_and_connect()
 
@@ -740,6 +774,22 @@ class MediaPlayerApp(App):
 
 if __name__ == "__main__":
     import sys
+
+    sys.stdout.write("\033[8;35;113t")
+    sys.stdout.flush()
+
+    subprocess.run(["osascript", "-e", """
+        tell application "Terminal"
+            set W to front window
+            set {wx, wy, wx2, wy2} to bounds of W
+            set ww to wx2 - wx
+            set wh to wy2 - wy
+            tell application "Finder"
+                set {sx, sy, sw, sh} to bounds of window of desktop
+            end tell
+            set bounds of W to {(sw - ww) / 2, (sh - wh) / 2, (sw + ww) / 2, (sh + wh) / 2}
+        end tell
+    """], capture_output=True)
 
     media_dir = sys.argv[1] if len(sys.argv) > 1 else "."
     if not os.path.isdir(os.path.expanduser(media_dir)):
